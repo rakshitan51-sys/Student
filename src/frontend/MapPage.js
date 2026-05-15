@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+
 import {
   MapContainer,
   TileLayer,
@@ -20,8 +21,10 @@ delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl:
     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
+
   iconUrl:
     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+
   shadowUrl:
     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
 });
@@ -34,6 +37,7 @@ L.Icon.Default.mergeOptions({
 const busIcon = new L.Icon({
   iconUrl:
     "https://cdn-icons-png.flaticon.com/512/3448/3448339.png",
+
   iconSize: [40, 40],
   iconAnchor: [20, 40],
 });
@@ -42,6 +46,7 @@ const busIcon = new L.Icon({
 const studentIcon = new L.Icon({
   iconUrl:
     "https://cdn-icons-png.flaticon.com/512/3177/3177440.png",
+
   iconSize: [35, 35],
   iconAnchor: [17, 35],
 });
@@ -50,6 +55,7 @@ const studentIcon = new L.Icon({
 const collegeIcon = new L.Icon({
   iconUrl:
     "https://cdn-icons-png.flaticon.com/512/167/167707.png",
+
   iconSize: [35, 35],
   iconAnchor: [17, 35],
 });
@@ -65,31 +71,6 @@ const COLLEGE_LNG = 74.7092;
 // ================================
 const DRIVER_API =
   "https://backendstudent-1.onrender.com";
-
-// ================================
-// Distance Calculator
-// ================================
-function haversineKm(lat1, lng1, lat2, lng2) {
-  const R = 6371;
-
-  const dLat =
-    ((lat2 - lat1) * Math.PI) / 180;
-
-  const dLng =
-    ((lng2 - lng1) * Math.PI) / 180;
-
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLng / 2) ** 2;
-
-  return (
-    R *
-    2 *
-    Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  );
-}
 
 // ================================
 // Recenter Map
@@ -135,6 +116,9 @@ export default function MapPage() {
 
   const [studentPosition, setStudentPosition] =
     useState(null);
+
+  const [roadRoute, setRoadRoute] =
+    useState([]);
 
   const [driverName, setDriverName] =
     useState("—");
@@ -196,6 +180,56 @@ export default function MapPage() {
   }, []);
 
   // ================================
+  // ROAD ROUTE (BUS → STUDENT)
+  // ================================
+  useEffect(() => {
+    async function fetchRoadRoute() {
+      if (!studentPosition || !busPosition)
+        return;
+
+      try {
+        const url = `https://router.project-osrm.org/route/v1/driving/${busPosition[1]},${busPosition[0]};${studentPosition[1]},${studentPosition[0]}?overview=full&geometries=geojson`;
+
+        const res = await fetch(url);
+
+        const data = await res.json();
+
+        if (
+          data.routes &&
+          data.routes.length > 0
+        ) {
+          const coords =
+            data.routes[0].geometry.coordinates.map(
+              (c) => [c[1], c[0]]
+            );
+
+          setRoadRoute(coords);
+
+          // Distance in KM
+          const distanceKm =
+            data.routes[0].distance / 1000;
+
+          setDistKm(
+            distanceKm.toFixed(1)
+          );
+
+          // ETA in Minutes
+          const durationMin =
+            data.routes[0].duration / 60;
+
+          setEtaMin(
+            Math.round(durationMin)
+          );
+        }
+      } catch (err) {
+        console.log(err);
+      }
+    }
+
+    fetchRoadRoute();
+  }, [busPosition, studentPosition]);
+
+  // ================================
   // WebSocket Live Updates
   // ================================
   useEffect(() => {
@@ -243,21 +277,12 @@ export default function MapPage() {
                 msg.lng,
               ]);
 
-              setDriverName(msg.name || "—");
-
-              setBusNo(msg.busNo || "—");
-
-              const dist = haversineKm(
-                msg.lat,
-                msg.lng,
-                COLLEGE_LAT,
-                COLLEGE_LNG
+              setDriverName(
+                msg.name || "—"
               );
 
-              setDistKm(dist.toFixed(1));
-
-              setEtaMin(
-                Math.round((dist / 40) * 60)
+              setBusNo(
+                msg.busNo || "—"
               );
 
               setLastUpdate(
@@ -281,7 +306,10 @@ export default function MapPage() {
 
       ws.onclose = () => {
         if (mountedRef.current) {
-          setWsStatus("🔄 Reconnecting...");
+          setWsStatus(
+            "🔄 Reconnecting..."
+          );
+
           setIsLive(false);
 
           setTimeout(connect, 5000);
@@ -323,27 +351,22 @@ export default function MapPage() {
               .trim()
         );
 
-        if (match && match.lat && match.lng) {
+        if (
+          match &&
+          match.lat &&
+          match.lng
+        ) {
           setBusPosition([
             match.lat,
             match.lng,
           ]);
 
-          setDriverName(match.name || "—");
-
-          setBusNo(match.busNo || "—");
-
-          const dist = haversineKm(
-            match.lat,
-            match.lng,
-            COLLEGE_LAT,
-            COLLEGE_LNG
+          setDriverName(
+            match.name || "—"
           );
 
-          setDistKm(dist.toFixed(1));
-
-          setEtaMin(
-            Math.round((dist / 40) * 60)
+          setBusNo(
+            match.busNo || "—"
           );
 
           setLastUpdate(
@@ -392,7 +415,9 @@ export default function MapPage() {
             : "#fff7ed",
 
           border: `1px solid ${
-            isLive ? "#86efac" : "#fed7aa"
+            isLive
+              ? "#86efac"
+              : "#fed7aa"
           }`,
 
           borderRadius: 10,
@@ -403,7 +428,8 @@ export default function MapPage() {
 
           display: "flex",
 
-          justifyContent: "space-between",
+          justifyContent:
+            "space-between",
 
           fontSize: "0.8rem",
         }}
@@ -456,7 +482,8 @@ export default function MapPage() {
       {/* MAP */}
       <MapContainer
         center={
-          studentPosition || busPosition
+          studentPosition ||
+          busPosition
         }
         zoom={13}
         style={{
@@ -488,7 +515,9 @@ export default function MapPage() {
         {/* 👨‍🎓 STUDENT */}
         {studentPosition && (
           <Marker
-            position={studentPosition}
+            position={
+              studentPosition
+            }
             icon={studentIcon}
           >
             <Popup>
@@ -510,15 +539,12 @@ export default function MapPage() {
           </Popup>
         </Marker>
 
-        {/* 🔴 BUS → STUDENT */}
-        {studentPosition && (
+        {/* 🛣 ROAD ROUTE */}
+        {roadRoute.length > 0 && (
           <Polyline
-            positions={[
-              busPosition,
-              studentPosition,
-            ]}
+            positions={roadRoute}
             color="red"
-            weight={4}
+            weight={5}
           />
         )}
 
@@ -544,7 +570,8 @@ export default function MapPage() {
           <Polyline
             positions={stops
               .filter(
-                (s) => s.lat && s.lng
+                (s) =>
+                  s.lat && s.lng
               )
               .map((s) => [
                 s.lat,
@@ -558,7 +585,9 @@ export default function MapPage() {
 
       {/* ROUTE STOPS */}
       {stops.length > 0 && (
-        <div style={{ marginTop: 14 }}>
+        <div
+          style={{ marginTop: 14 }}
+        >
           <div
             style={{
               fontWeight: 700,
@@ -589,19 +618,22 @@ export default function MapPage() {
                   justifyContent:
                     "space-between",
 
-                  padding: "8px 12px",
+                  padding:
+                    "8px 12px",
 
                   marginBottom: 6,
 
                   borderRadius: 8,
 
                   background:
-                    i === currentStage
+                    i ===
+                    currentStage
                       ? "#f0fdf4"
                       : "#f8fafc",
 
                   border: `1px solid ${
-                    i === currentStage
+                    i ===
+                    currentStage
                       ? "#86efac"
                       : "#e2e8f0"
                   }`,
@@ -618,7 +650,7 @@ export default function MapPage() {
         </div>
       )}
 
-      {/* BOTTOM BUTTONS */}
+      {/* BUTTONS */}
       <div
         style={{
           display: "flex",
