@@ -13,9 +13,9 @@ import {
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-// ================================
-// Fix Leaflet Default Marker
-// ================================
+// =====================================
+// FIX LEAFLET DEFAULT ICON
+// =====================================
 delete L.Icon.Default.prototype._getIconUrl;
 
 L.Icon.Default.mergeOptions({
@@ -29,52 +29,52 @@ L.Icon.Default.mergeOptions({
     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
 });
 
-// ================================
-// Icons
-// ================================
+// =====================================
+// ICONS
+// =====================================
 
-// 🚌 Bus Icon
+// 🚌 BUS ICON
 const busIcon = new L.Icon({
   iconUrl:
-    "https://cdn-icons-png.flaticon.com/512/3448/3448339.png",
+    "https://cdn-icons-png.flaticon.com/512/854/854878.png",
 
-  iconSize: [40, 40],
-  iconAnchor: [20, 40],
+  iconSize: [50, 50],
+  iconAnchor: [25, 50],
 });
 
-// 👨‍🎓 Student Icon
+// 👨‍🎓 STUDENT ICON
 const studentIcon = new L.Icon({
   iconUrl:
     "https://cdn-icons-png.flaticon.com/512/3177/3177440.png",
 
-  iconSize: [35, 35],
-  iconAnchor: [17, 35],
+  iconSize: [42, 42],
+  iconAnchor: [21, 42],
 });
 
-// 🎓 College Icon
+// 🎓 COLLEGE ICON
 const collegeIcon = new L.Icon({
   iconUrl:
     "https://cdn-icons-png.flaticon.com/512/167/167707.png",
 
-  iconSize: [35, 35],
-  iconAnchor: [17, 35],
+  iconSize: [42, 42],
+  iconAnchor: [21, 42],
 });
 
-// ================================
-// College Coordinates
-// ================================
+// =====================================
+// COLLEGE LOCATION
+// =====================================
 const COLLEGE_LAT = 14.9657;
 const COLLEGE_LNG = 74.7092;
 
-// ================================
-// Backend URL
-// ================================
+// =====================================
+// BACKEND API
+// =====================================
 const DRIVER_API =
   "https://backendstudent-1.onrender.com";
 
-// ================================
-// Recenter Map
-// ================================
+// =====================================
+// RECENTER MAP
+// =====================================
 function RecenterMap({ position }) {
   const map = useMap();
 
@@ -85,15 +85,15 @@ function RecenterMap({ position }) {
   return null;
 }
 
-// ================================
-// Main Component
-// ================================
+// =====================================
+// MAIN COMPONENT
+// =====================================
 export default function MapPage() {
   const navigate = useNavigate();
 
-  // ================================
-  // Student Data
-  // ================================
+  // =====================================
+  // STUDENT DATA
+  // =====================================
   const student = (() => {
     try {
       return JSON.parse(
@@ -106,56 +106,59 @@ export default function MapPage() {
 
   const studentRoute = student.route || "";
 
-  // ================================
-  // States
-  // ================================
-  const [busPosition, setBusPosition] = useState([
-    COLLEGE_LAT,
-    COLLEGE_LNG,
-  ]);
+  // =====================================
+  // STATES
+  // =====================================
+  const [busPosition, setBusPosition] =
+    useState([
+      COLLEGE_LAT,
+      COLLEGE_LNG,
+    ]);
 
-  const [studentPosition, setStudentPosition] =
+  const [studentPosition,
+    setStudentPosition] =
     useState(null);
 
-  const [roadRoute, setRoadRoute] =
+  // 🛣 ROAD ROUTES
+  const [busToStudentRoute,
+    setBusToStudentRoute] =
     useState([]);
 
-  const [driverName, setDriverName] =
+  const [studentToCollegeRoute,
+    setStudentToCollegeRoute] =
+    useState([]);
+
+  const [driverName,
+    setDriverName] =
     useState("—");
 
-  const [busNo, setBusNo] = useState("—");
+  const [busNo,
+    setBusNo] =
+    useState("—");
 
-  const [distKm, setDistKm] = useState(null);
-
-  const [etaMin, setEtaMin] = useState(null);
-
-  const [lastUpdate, setLastUpdate] =
+  const [lastUpdate,
+    setLastUpdate] =
     useState(null);
 
-  const [wsStatus, setWsStatus] =
+  const [wsStatus,
+    setWsStatus] =
     useState("Connecting...");
 
-  const [isLive, setIsLive] =
+  const [isLive,
+    setIsLive] =
     useState(false);
-
-  const [currentStage, setCurrentStage] =
-    useState(0);
-
-  const stops = (student.stops || []).map((s) =>
-    typeof s === "string"
-      ? { name: s, lat: null, lng: null }
-      : s
-  );
 
   const wsRef = useRef(null);
 
-  const mountedRef = useRef(true);
+  const mountedRef =
+    useRef(true);
 
-  // ================================
-  // Student Live GPS Location
-  // ================================
+  // =====================================
+  // STUDENT LIVE LOCATION
+  // =====================================
   useEffect(() => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation)
+      return;
 
     const watchId =
       navigator.geolocation.watchPosition(
@@ -176,49 +179,67 @@ export default function MapPage() {
       );
 
     return () =>
-      navigator.geolocation.clearWatch(watchId);
+      navigator.geolocation.clearWatch(
+        watchId
+      );
   }, []);
 
-  // ================================
-  // ROAD ROUTE (BUS → STUDENT)
-  // ================================
+  // =====================================
+  // FETCH ROAD ROUTES
+  // =====================================
   useEffect(() => {
-    async function fetchRoadRoute() {
-      if (!studentPosition || !busPosition)
+    async function fetchRoutes() {
+      if (!studentPosition)
         return;
 
       try {
-        const url = `https://router.project-osrm.org/route/v1/driving/${busPosition[1]},${busPosition[0]};${studentPosition[1]},${studentPosition[0]}?overview=full&geometries=geojson`;
+        // =============================
+        // BUS ➜ STUDENT ROAD
+        // =============================
+        const busUrl = `https://router.project-osrm.org/route/v1/driving/${busPosition[1]},${busPosition[0]};${studentPosition[1]},${studentPosition[0]}?overview=full&geometries=geojson`;
 
-        const res = await fetch(url);
+        const busRes =
+          await fetch(busUrl);
 
-        const data = await res.json();
+        const busData =
+          await busRes.json();
 
         if (
-          data.routes &&
-          data.routes.length > 0
+          busData.routes &&
+          busData.routes.length > 0
         ) {
           const coords =
-            data.routes[0].geometry.coordinates.map(
+            busData.routes[0].geometry.coordinates.map(
               (c) => [c[1], c[0]]
             );
 
-          setRoadRoute(coords);
-
-          // Distance in KM
-          const distanceKm =
-            data.routes[0].distance / 1000;
-
-          setDistKm(
-            distanceKm.toFixed(1)
+          setBusToStudentRoute(
+            coords
           );
+        }
 
-          // ETA in Minutes
-          const durationMin =
-            data.routes[0].duration / 60;
+        // =============================
+        // STUDENT ➜ COLLEGE ROAD
+        // =============================
+        const collegeUrl = `https://router.project-osrm.org/route/v1/driving/${studentPosition[1]},${studentPosition[0]};${COLLEGE_LNG},${COLLEGE_LAT}?overview=full&geometries=geojson`;
 
-          setEtaMin(
-            Math.round(durationMin)
+        const collegeRes =
+          await fetch(collegeUrl);
+
+        const collegeData =
+          await collegeRes.json();
+
+        if (
+          collegeData.routes &&
+          collegeData.routes.length > 0
+        ) {
+          const coords =
+            collegeData.routes[0].geometry.coordinates.map(
+              (c) => [c[1], c[0]]
+            );
+
+          setStudentToCollegeRoute(
+            coords
           );
         }
       } catch (err) {
@@ -226,17 +247,18 @@ export default function MapPage() {
       }
     }
 
-    fetchRoadRoute();
+    fetchRoutes();
   }, [busPosition, studentPosition]);
 
-  // ================================
-  // WebSocket Live Updates
-  // ================================
+  // =====================================
+  // WEBSOCKET LIVE LOCATION
+  // =====================================
   useEffect(() => {
     mountedRef.current = true;
 
     function connect() {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current)
+        return;
 
       const ws = new WebSocket(
         "ws://localhost:8000/ws"
@@ -245,17 +267,19 @@ export default function MapPage() {
       wsRef.current = ws;
 
       ws.onopen = () => {
-        if (mountedRef.current) {
-          setWsStatus("🟢 Live");
-          setIsLive(true);
-        }
+        setWsStatus("🟢 Live");
+        setIsLive(true);
       };
 
       ws.onmessage = (e) => {
         try {
-          const msg = JSON.parse(e.data);
+          const msg = JSON.parse(
+            e.data
+          );
 
-          if (msg.type === "location") {
+          if (
+            msg.type === "location"
+          ) {
             const msgRoute = (
               msg.route || ""
             )
@@ -268,10 +292,15 @@ export default function MapPage() {
               .toLowerCase()
               .trim();
 
-            if (!myRoute || msgRoute !== myRoute)
+            if (
+              msgRoute !== myRoute
+            )
               return;
 
-            if (msg.lat && msg.lng) {
+            if (
+              msg.lat &&
+              msg.lng
+            ) {
               setBusPosition([
                 msg.lat,
                 msg.lng,
@@ -288,32 +317,29 @@ export default function MapPage() {
               setLastUpdate(
                 new Date().toLocaleTimeString()
               );
-
-              setCurrentStage(
-                msg.stageIndex || 0
-              );
             }
           }
-        } catch (_) {}
+        } catch (err) {
+          console.log(err);
+        }
       };
 
       ws.onerror = () => {
-        if (mountedRef.current) {
-          setWsStatus("⚠️ Error");
-          setIsLive(false);
-        }
+        setWsStatus("⚠️ Error");
+        setIsLive(false);
       };
 
       ws.onclose = () => {
-        if (mountedRef.current) {
-          setWsStatus(
-            "🔄 Reconnecting..."
-          );
+        setWsStatus(
+          "🔄 Reconnecting..."
+        );
 
-          setIsLive(false);
+        setIsLive(false);
 
-          setTimeout(connect, 5000);
-        }
+        setTimeout(
+          connect,
+          5000
+        );
       };
     }
 
@@ -321,35 +347,42 @@ export default function MapPage() {
 
     return () => {
       mountedRef.current = false;
+
       wsRef.current?.close();
     };
   }, [studentRoute]);
 
-  // ================================
-  // REST Fallback
-  // ================================
+  // =====================================
+  // REST FALLBACK
+  // =====================================
   useEffect(() => {
     async function fetchLocation() {
-      if (!studentRoute) return;
+      if (!studentRoute)
+        return;
 
       try {
         const res = await fetch(
           `${DRIVER_API}/locations/all`
         );
 
-        const list = await res.json();
+        const list =
+          await res.json();
 
-        if (!Array.isArray(list)) return;
+        if (
+          !Array.isArray(list)
+        )
+          return;
 
-        const match = list.find(
-          (d) =>
-            (d.route || "")
-              .toLowerCase()
-              .trim() ===
-            studentRoute
-              .toLowerCase()
-              .trim()
-        );
+        const match =
+          list.find(
+            (d) =>
+              (d.route || "")
+                .toLowerCase()
+                .trim() ===
+              studentRoute
+                .toLowerCase()
+                .trim()
+          );
 
         if (
           match &&
@@ -373,22 +406,26 @@ export default function MapPage() {
             new Date().toLocaleTimeString()
           );
         }
-      } catch (_) {}
+      } catch (err) {
+        console.log(err);
+      }
     }
 
     fetchLocation();
 
-    const interval = setInterval(
-      fetchLocation,
-      10000
-    );
+    const interval =
+      setInterval(
+        fetchLocation,
+        10000
+      );
 
-    return () => clearInterval(interval);
+    return () =>
+      clearInterval(interval);
   }, [studentRoute]);
 
-  // ================================
+  // =====================================
   // UI
-  // ================================
+  // =====================================
   return (
     <div
       style={{
@@ -400,8 +437,7 @@ export default function MapPage() {
     >
       <h2
         style={{
-          margin: "0 0 8px",
-          fontSize: "1.1rem",
+          marginBottom: 10,
         }}
       >
         🚍 Live Bus Tracking
@@ -420,9 +456,9 @@ export default function MapPage() {
               : "#fed7aa"
           }`,
 
-          borderRadius: 10,
+          borderRadius: 12,
 
-          padding: "8px 12px",
+          padding: 10,
 
           marginBottom: 10,
 
@@ -430,8 +466,6 @@ export default function MapPage() {
 
           justifyContent:
             "space-between",
-
-          fontSize: "0.8rem",
         }}
       >
         <span>{wsStatus}</span>
@@ -446,36 +480,27 @@ export default function MapPage() {
         style={{
           background: "#eff6ff",
 
-          borderRadius: 10,
+          borderRadius: 12,
 
-          padding: 12,
+          padding: 14,
 
-          marginBottom: 10,
+          marginBottom: 12,
 
-          fontSize: "0.85rem",
+          lineHeight: 1.8,
         }}
       >
         <div>
-          <b>🚌 Bus:</b> {busNo}
+          🚌 <b>Bus:</b> {busNo}
         </div>
 
         <div>
-          <b>👤 Driver:</b> {driverName}
+          👤 <b>Driver:</b>{" "}
+          {driverName}
         </div>
 
         <div>
-          <b>🛣 Route:</b>{" "}
-          {studentRoute || "—"}
-        </div>
-
-        <div>
-          <b>📏 Distance:</b>{" "}
-          {distKm || "--"} KM
-        </div>
-
-        <div>
-          <b>⏱ ETA:</b>{" "}
-          {etaMin || "--"} mins
+          🛣 <b>Route:</b>{" "}
+          {studentRoute}
         </div>
       </div>
 
@@ -485,10 +510,10 @@ export default function MapPage() {
           studentPosition ||
           busPosition
         }
-        zoom={13}
+        zoom={12}
         style={{
-          height: "55vh",
-          borderRadius: 14,
+          height: "70vh",
+          borderRadius: 18,
           overflow: "hidden",
         }}
       >
@@ -507,8 +532,10 @@ export default function MapPage() {
           icon={busIcon}
         >
           <Popup>
-            🚌 Bus <br />
-            Driver: {driverName}
+            🚌 Driver:
+            {driverName}
+            <br />
+            Bus: {busNo}
           </Popup>
         </Marker>
 
@@ -539,116 +566,30 @@ export default function MapPage() {
           </Popup>
         </Marker>
 
-        {/* 🛣 ROAD ROUTE */}
-        {roadRoute.length > 0 && (
+        {/* 🔴 BUS ➜ STUDENT */}
+        {busToStudentRoute.length >
+          0 && (
           <Polyline
-            positions={roadRoute}
+            positions={
+              busToStudentRoute
+            }
             color="red"
-            weight={5}
+            weight={6}
           />
         )}
 
-        {/* 🔵 COLLEGE → STUDENT */}
-        {studentPosition && (
+        {/* 🔵 STUDENT ➜ COLLEGE */}
+        {studentToCollegeRoute.length >
+          0 && (
           <Polyline
-            positions={[
-              [
-                COLLEGE_LAT,
-                COLLEGE_LNG,
-              ],
-              studentPosition,
-            ]}
+            positions={
+              studentToCollegeRoute
+            }
             color="blue"
-            weight={4}
-          />
-        )}
-
-        {/* 🛣 ROUTE LINE */}
-        {stops.filter(
-          (s) => s.lat && s.lng
-        ).length > 1 && (
-          <Polyline
-            positions={stops
-              .filter(
-                (s) =>
-                  s.lat && s.lng
-              )
-              .map((s) => [
-                s.lat,
-                s.lng,
-              ])}
-            color="#1565C0"
-            weight={4}
+            weight={6}
           />
         )}
       </MapContainer>
-
-      {/* ROUTE STOPS */}
-      {stops.length > 0 && (
-        <div
-          style={{ marginTop: 14 }}
-        >
-          <div
-            style={{
-              fontWeight: 700,
-              marginBottom: 8,
-            }}
-          >
-            📍 Route Stops
-          </div>
-
-          {stops.map((s, i) => {
-            let status =
-              "⏳ Upcoming";
-
-            if (i < currentStage)
-              status = "✅ Passed";
-
-            else if (
-              i === currentStage
-            )
-              status = "🟢 Arriving";
-
-            return (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-
-                  justifyContent:
-                    "space-between",
-
-                  padding:
-                    "8px 12px",
-
-                  marginBottom: 6,
-
-                  borderRadius: 8,
-
-                  background:
-                    i ===
-                    currentStage
-                      ? "#f0fdf4"
-                      : "#f8fafc",
-
-                  border: `1px solid ${
-                    i ===
-                    currentStage
-                      ? "#86efac"
-                      : "#e2e8f0"
-                  }`,
-                }}
-              >
-                <span>
-                  {i + 1}. {s.name}
-                </span>
-
-                <span>{status}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
 
       {/* BUTTONS */}
       <div
@@ -660,7 +601,9 @@ export default function MapPage() {
       >
         <button
           onClick={() =>
-            navigate("/dashboard")
+            navigate(
+              "/dashboard"
+            )
           }
           style={{
             flex: 1,
