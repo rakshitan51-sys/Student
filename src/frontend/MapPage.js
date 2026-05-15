@@ -36,7 +36,7 @@ L.Icon.Default.mergeOptions({
 // 🚌 BUS ICON
 const busIcon = new L.Icon({
   iconUrl:
-    "https://cdn-icons-png.flaticon.com/512/854/854878.png",
+      "https://cdn-icons-png.flaticon.com/512/3448/3448339.png",
 
   iconSize: [50, 50],
   iconAnchor: [25, 50],
@@ -628,7 +628,7 @@ export default function MapPage() {
             borderRadius: 10,
             border: "none",
             background: "#1565C0",
-            color: "white",
+            color: "red",
             fontWeight: 700,
             cursor: "pointer",
           }}
