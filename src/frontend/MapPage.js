@@ -1,4 +1,5 @@
-// MapPage.jsx — Full replacement
+
+
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -33,21 +34,39 @@ const COLLEGE_LNG = 74.7092;
 const DRIVER_API = "https://backendstudent-1.onrender.com";
 
 // ================================
-// Road Distance via OSRM (free)
-// Returns km or null on failure
+// Haversine (air) — fallback only
 // ================================
-async function getRoadDistanceKm(lat1, lng1, lat2, lng2) {
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ================================
+// OSRM Road Distance — defined
+// OUTSIDE component so it never
+// becomes a stale closure
+// ================================
+async function fetchRoadKm(lat, lng) {
   try {
     const url =
       `https://router.project-osrm.org/route/v1/driving/` +
-      `${lng1},${lat1};${lng2},${lat2}?overview=false`;
+      `${lng},${lat};${COLLEGE_LNG},${COLLEGE_LAT}?overview=false`;
     const res = await fetch(url);
     const data = await res.json();
-    if (data.routes && data.routes[0]) {
-      return (data.routes[0].distance / 1000).toFixed(1); // metres → km
+    if (data.routes && data.routes.length > 0) {
+      const km = data.routes[0].distance / 1000;
+      return parseFloat(km.toFixed(1));
     }
   } catch (_) {}
-  return null;
+  // Fallback to haversine if OSRM fails
+  return parseFloat(haversineKm(lat, lng, COLLEGE_LAT, COLLEGE_LNG).toFixed(1));
 }
 
 function RecenterMap({ position }) {
@@ -56,40 +75,28 @@ function RecenterMap({ position }) {
   return null;
 }
 
-// ================================
-// Stat Card
-// ================================
 function StatCard({ value, label, color, icon }) {
   return (
     <div style={{
-      flex: 1,
-      background: "#fff",
+      flex: 1, background: "#fff",
       border: `1.5px solid ${color}33`,
-      borderRadius: 14,
-      padding: "12px 8px",
+      borderRadius: 14, padding: "12px 8px",
       textAlign: "center",
       boxShadow: "0 2px 8px rgba(0,0,0,0.07)",
     }}>
       <div style={{
-        fontSize: "1.6rem",
-        fontWeight: 800,
-        color: color,
-        lineHeight: 1.1,
+        fontSize: "1.6rem", fontWeight: 800,
+        color: color, lineHeight: 1.1,
       }}>
-        {value ?? "--"}
+        {value ?? "…"}
       </div>
       <div style={{
-        fontSize: "0.68rem",
-        color: "#64748b",
-        marginTop: 4,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 3,
-        fontWeight: 500,
+        fontSize: "0.68rem", color: "#64748b",
+        marginTop: 4, display: "flex",
+        alignItems: "center", justifyContent: "center",
+        gap: 3, fontWeight: 500,
       }}>
-        <span>{icon}</span>
-        <span>{label}</span>
+        <span>{icon}</span><span>{label}</span>
       </div>
     </div>
   );
@@ -107,56 +114,37 @@ export default function MapPage() {
   })();
   const studentRoute = student.route || "";
 
-  const [busPosition, setBusPosition] = useState([COLLEGE_LAT, COLLEGE_LNG]);
+  const [busPosition, setBusPosition]   = useState([COLLEGE_LAT, COLLEGE_LNG]);
   const [studentPosition, setStudentPosition] = useState(null);
-  const [driverName, setDriverName] = useState("—");
-  const [busNo, setBusNo] = useState("—");
-  const [roadDistKm, setRoadDistKm] = useState(null);   // road distance
-  const [etaMin, setEtaMin] = useState(null);
-  const [lastUpdate, setLastUpdate] = useState(null);
-  const [isLive, setIsLive] = useState(false);
+  const [driverName, setDriverName]     = useState("—");
+  const [busNo, setBusNo]               = useState("—");
+  const [roadDistKm, setRoadDistKm]     = useState(null);
+  const [etaMin, setEtaMin]             = useState(null);
+  const [lastUpdate, setLastUpdate]     = useState(null);
+  const [isLive, setIsLive]             = useState(false);
   const [currentStage, setCurrentStage] = useState(0);
 
   const stops = (student.stops || []).map((s) =>
     typeof s === "string" ? { name: s, lat: null, lng: null } : s
   );
 
-  const wsRef = useRef(null);
+  const wsRef      = useRef(null);
   const mountedRef = useRef(true);
 
-  // ================================
   // Student GPS
-  // ================================
   useEffect(() => {
     if (!navigator.geolocation) return;
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => setStudentPosition([pos.coords.latitude, pos.coords.longitude]),
-      (err) => console.log(err),
+    const id = navigator.geolocation.watchPosition(
+      (p) => setStudentPosition([p.coords.latitude, p.coords.longitude]),
+      (e) => console.warn(e),
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
     );
-    return () => navigator.geolocation.clearWatch(watchId);
+    return () => navigator.geolocation.clearWatch(id);
   }, []);
 
   // ================================
-  // Helper: apply location + fetch road distance
-  // ================================
-  async function applyLocationData(lat, lng, name, busNoVal, stageIndex) {
-    setBusPosition([lat, lng]);
-    setDriverName(name || "—");
-    setBusNo(busNoVal || "—");
-    setCurrentStage(stageIndex || 0);
-    setLastUpdate(new Date().toLocaleTimeString());
-
-    // Fetch road distance from OSRM
-    const roadKm = await getRoadDistanceKm(lat, lng, COLLEGE_LAT, COLLEGE_LNG);
-    if (roadKm) {
-      setRoadDistKm(roadKm);
-      setEtaMin(Math.round((parseFloat(roadKm) / 40) * 60));
-    }
-  }
-
-  // ================================
-  // WebSocket
+  // WebSocket — OSRM called directly
+  // inside the closure so no stale ref
   // ================================
   useEffect(() => {
     mountedRef.current = true;
@@ -166,31 +154,39 @@ export default function MapPage() {
       const ws = new WebSocket("ws://localhost:8000/ws");
       wsRef.current = ws;
 
-      ws.onopen = () => {
-        if (mountedRef.current) setIsLive(true);
-      };
-
-      ws.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data);
-          if (msg.type === "location") {
-            const msgRoute = (msg.route || "").toLowerCase().trim();
-            const myRoute = (studentRoute || "").toLowerCase().trim();
-            if (!myRoute || msgRoute !== myRoute) return;
-            if (msg.lat && msg.lng) {
-              applyLocationData(msg.lat, msg.lng, msg.name, msg.busNo, msg.stageIndex);
-            }
-          }
-        } catch (_) {}
-      };
-
+      ws.onopen  = () => { if (mountedRef.current) setIsLive(true); };
       ws.onerror = () => { if (mountedRef.current) setIsLive(false); };
-
       ws.onclose = () => {
         if (mountedRef.current) {
           setIsLive(false);
           setTimeout(connect, 5000);
         }
+      };
+
+      ws.onmessage = async (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type !== "location") return;
+
+          const msgRoute = (msg.route || "").toLowerCase().trim();
+          const myRoute  = (studentRoute || "").toLowerCase().trim();
+          if (!myRoute || msgRoute !== myRoute) return;
+          if (!msg.lat || !msg.lng) return;
+
+          // Update position/info immediately
+          setBusPosition([msg.lat, msg.lng]);
+          setDriverName(msg.name || "—");
+          setBusNo(msg.busNo || "—");
+          setCurrentStage(msg.stageIndex || 0);
+          setLastUpdate(new Date().toLocaleTimeString());
+
+          // ✅ Fetch road distance from OSRM directly here
+          const km = await fetchRoadKm(msg.lat, msg.lng);
+          if (mountedRef.current) {
+            setRoadDistKm(km);
+            setEtaMin(Math.round((km / 40) * 60));
+          }
+        } catch (_) {}
       };
     }
 
@@ -199,59 +195,76 @@ export default function MapPage() {
   }, [studentRoute]);
 
   // ================================
-  // REST Fallback (every 10s)
+  // REST Fallback — OSRM called directly
   // ================================
   useEffect(() => {
+    let active = true;
+
     async function fetchLocation() {
       if (!studentRoute) return;
       try {
-        const res = await fetch(`${DRIVER_API}/locations/all`);
+        const res  = await fetch(`${DRIVER_API}/locations/all`);
         const list = await res.json();
         if (!Array.isArray(list)) return;
+
         const match = list.find(
-          (d) => (d.route || "").toLowerCase().trim() === studentRoute.toLowerCase().trim()
+          (d) => (d.route || "").toLowerCase().trim() ===
+                 studentRoute.toLowerCase().trim()
         );
-        if (match && match.lat && match.lng) {
-          applyLocationData(match.lat, match.lng, match.name, match.busNo, match.stageIndex);
+        if (!match || !match.lat || !match.lng) return;
+
+        if (active) {
+          setBusPosition([match.lat, match.lng]);
+          setDriverName(match.name || "—");
+          setBusNo(match.busNo || "—");
+          setCurrentStage(match.stageIndex || 0);
+          setLastUpdate(new Date().toLocaleTimeString());
+        }
+
+        // ✅ Fetch road distance from OSRM directly here
+        const km = await fetchRoadKm(match.lat, match.lng);
+        if (active) {
+          setRoadDistKm(km);
+          setEtaMin(Math.round((km / 40) * 60));
         }
       } catch (_) {}
     }
+
     fetchLocation();
     const interval = setInterval(fetchLocation, 10000);
-    return () => clearInterval(interval);
+    return () => { active = false; clearInterval(interval); };
   }, [studentRoute]);
 
   // ================================
   // UI
   // ================================
   return (
-    <div style={{ fontFamily: "sans-serif", maxWidth: 480, margin: "0 auto", background: "#f1f5f9", minHeight: "100vh" }}>
+    <div style={{
+      fontFamily: "sans-serif", maxWidth: 480,
+      margin: "0 auto", background: "#f1f5f9", minHeight: "100vh",
+    }}>
 
-      {/* ── HEADER ── */}
+      {/* HEADER */}
       <div style={{
         background: "linear-gradient(135deg, #1565C0, #1e88e5)",
         padding: "16px 16px 14px",
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
+        display: "flex", alignItems: "center", gap: 10,
       }}>
         <span style={{ fontSize: "1.5rem" }}>🚍</span>
         <div>
-          <div style={{ color: "#fff", fontWeight: 800, fontSize: "1rem", letterSpacing: 0.3 }}>
+          <div style={{ color: "#fff", fontWeight: 800, fontSize: "1rem" }}>
             Live Bus Tracking
           </div>
           <div style={{ color: "#bbdefb", fontSize: "0.72rem", marginTop: 1 }}>
             {studentRoute ? `Route: ${studentRoute}` : "No route assigned"}
           </div>
         </div>
-
-        {/* Live dot — top right */}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5 }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{
-            width: 8, height: 8, borderRadius: "50%",
+            width: 9, height: 9, borderRadius: "50%",
             background: isLive ? "#4ade80" : "#f87171",
             display: "inline-block",
-            boxShadow: isLive ? "0 0 0 3px #4ade8044" : "none",
+            boxShadow: isLive ? "0 0 0 3px #4ade8055" : "none",
           }} />
           <span style={{ color: "#fff", fontSize: "0.72rem", fontWeight: 600 }}>
             {isLive ? "Live" : "Offline"}
@@ -263,23 +276,17 @@ export default function MapPage() {
 
         {/* INFO CARD */}
         <div style={{
-          background: "#fff",
-          borderRadius: 12,
-          padding: "10px 14px",
-          marginBottom: 10,
+          background: "#fff", borderRadius: 12,
+          padding: "10px 14px", marginBottom: 10,
           fontSize: "0.85rem",
           boxShadow: "0 1px 4px rgba(0,0,0,0.07)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 4,
+          display: "flex", flexDirection: "column", gap: 4,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span>🚌</span>
-            <span><b>Bus:</b> {busNo}</span>
+            <span>🚌</span><span><b>Bus:</b> {busNo}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span>👤</span>
-            <span><b>Driver:</b> {driverName}</span>
+            <span>👤</span><span><b>Driver:</b> {driverName}</span>
           </div>
           {lastUpdate && (
             <div style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: 2 }}>
@@ -290,18 +297,8 @@ export default function MapPage() {
 
         {/* STAT CARDS */}
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-          <StatCard
-            value={roadDistKm}
-            label="KM Left"
-            color="#3b82f6"
-            icon="✏️"
-          />
-          <StatCard
-            value={etaMin}
-            label="ETA (min)"
-            color="#f97316"
-            icon="🕐"
-          />
+          <StatCard value={roadDistKm} label="KM Left (Road)" color="#3b82f6" icon="🛣️" />
+          <StatCard value={etaMin}     label="ETA (min)"      color="#f97316" icon="🕐" />
         </div>
 
         {/* MAP */}
@@ -328,10 +325,16 @@ export default function MapPage() {
           </Marker>
 
           {studentPosition && (
-            <Polyline positions={[busPosition, studentPosition]} color="red" weight={3} dashArray="6" />
+            <Polyline
+              positions={[busPosition, studentPosition]}
+              color="red" weight={3} dashArray="6"
+            />
           )}
           {studentPosition && (
-            <Polyline positions={[[COLLEGE_LAT, COLLEGE_LNG], studentPosition]} color="#1565C0" weight={3} />
+            <Polyline
+              positions={[[COLLEGE_LAT, COLLEGE_LNG], studentPosition]}
+              color="#1565C0" weight={3}
+            />
           )}
           {stops.filter((s) => s.lat && s.lng).length > 1 && (
             <Polyline
@@ -344,15 +347,12 @@ export default function MapPage() {
         {/* ROUTE STOPS */}
         {stops.length > 0 && (
           <div style={{ marginTop: 14 }}>
-            <div style={{
-              fontWeight: 700, marginBottom: 8, fontSize: "0.9rem",
-              color: "#1e293b",
-            }}>
+            <div style={{ fontWeight: 700, marginBottom: 8, fontSize: "0.9rem", color: "#1e293b" }}>
               📍 Route Stops
             </div>
             {stops.map((s, i) => {
               const status =
-                i < currentStage ? "✅ Passed" :
+                i < currentStage  ? "✅ Passed"   :
                 i === currentStage ? "🟢 Arriving" : "⏳ Upcoming";
               return (
                 <div key={i} style={{
@@ -379,16 +379,12 @@ export default function MapPage() {
             flex: 1, padding: 12, borderRadius: 10, border: "none",
             background: "#f1f5f9", fontWeight: 700, cursor: "pointer",
             fontSize: "0.9rem", color: "#334155",
-          }}>
-            🏠 Dashboard
-          </button>
+          }}>🏠 Dashboard</button>
           <button onClick={() => navigate("/map")} style={{
             flex: 1, padding: 12, borderRadius: 10, border: "none",
             background: "#1565C0", color: "white",
             fontWeight: 700, cursor: "pointer", fontSize: "0.9rem",
-          }}>
-            🚌 Live Tracking
-          </button>
+          }}>🚌 Live Tracking</button>
         </div>
 
       </div>
