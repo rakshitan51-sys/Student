@@ -1,5 +1,4 @@
-
-
+// MapPage.jsx — Final correct version
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -12,8 +11,8 @@ import "leaflet/dist/leaflet.css";
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
-  iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
-  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
+  iconUrl:       "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+  shadowUrl:     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
 });
 
 const busIcon = new L.Icon({
@@ -31,13 +30,13 @@ const collegeIcon = new L.Icon({
 
 const COLLEGE_LAT = 14.9657;
 const COLLEGE_LNG = 74.7092;
-const DRIVER_API = "https://backendstudent-1.onrender.com";
+const DRIVER_API  = "https://backendstudent-1.onrender.com";
 
-// ================================
-// Haversine (air) — fallback only
-// ================================
+// ─────────────────────────────────────
+// Air distance — instant, always works
+// ─────────────────────────────────────
 function haversineKm(lat1, lng1, lat2, lng2) {
-  const R = 6371;
+  const R    = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
   const a =
@@ -48,25 +47,23 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// ================================
-// OSRM Road Distance — defined
-// OUTSIDE component so it never
-// becomes a stale closure
-// ================================
+// ─────────────────────────────────────
+// Road distance via OSRM — async upgrade
+// Defined OUTSIDE component (no stale closure)
+// Returns null if OSRM fails (caller keeps haversine)
+// ─────────────────────────────────────
 async function fetchRoadKm(lat, lng) {
   try {
-    const url =
+    const res  = await fetch(
       `https://router.project-osrm.org/route/v1/driving/` +
-      `${lng},${lat};${COLLEGE_LNG},${COLLEGE_LAT}?overview=false`;
-    const res = await fetch(url);
+      `${lng},${lat};${COLLEGE_LNG},${COLLEGE_LAT}?overview=false`
+    );
     const data = await res.json();
     if (data.routes && data.routes.length > 0) {
-      const km = data.routes[0].distance / 1000;
-      return parseFloat(km.toFixed(1));
+      return parseFloat((data.routes[0].distance / 1000).toFixed(1));
     }
   } catch (_) {}
-  // Fallback to haversine if OSRM fails
-  return parseFloat(haversineKm(lat, lng, COLLEGE_LAT, COLLEGE_LNG).toFixed(1));
+  return null; // null = keep showing haversine
 }
 
 function RecenterMap({ position }) {
@@ -75,7 +72,7 @@ function RecenterMap({ position }) {
   return null;
 }
 
-function StatCard({ value, label, color, icon }) {
+function StatCard({ value, label, color, icon, isRoad }) {
   return (
     <div style={{
       flex: 1, background: "#fff",
@@ -84,11 +81,8 @@ function StatCard({ value, label, color, icon }) {
       textAlign: "center",
       boxShadow: "0 2px 8px rgba(0,0,0,0.07)",
     }}>
-      <div style={{
-        fontSize: "1.6rem", fontWeight: 800,
-        color: color, lineHeight: 1.1,
-      }}>
-        {value ?? "…"}
+      <div style={{ fontSize: "1.6rem", fontWeight: 800, color, lineHeight: 1.1 }}>
+        {value ?? "--"}
       </div>
       <div style={{
         fontSize: "0.68rem", color: "#64748b",
@@ -96,8 +90,20 @@ function StatCard({ value, label, color, icon }) {
         alignItems: "center", justifyContent: "center",
         gap: 3, fontWeight: 500,
       }}>
-        <span>{icon}</span><span>{label}</span>
+        <span>{icon}</span>
+        <span>{label}</span>
       </div>
+      {/* Small badge: Road / Air */}
+      {value != null && (
+        <div style={{
+          fontSize: "0.58rem",
+          color: isRoad ? "#16a34a" : "#94a3b8",
+          marginTop: 3,
+          fontWeight: 600,
+        }}>
+          {isRoad ? "📡 Road" : "📐 Air"}
+        </div>
+      )}
     </div>
   );
 }
@@ -114,15 +120,16 @@ export default function MapPage() {
   })();
   const studentRoute = student.route || "";
 
-  const [busPosition, setBusPosition]   = useState([COLLEGE_LAT, COLLEGE_LNG]);
-  const [studentPosition, setStudentPosition] = useState(null);
-  const [driverName, setDriverName]     = useState("—");
-  const [busNo, setBusNo]               = useState("—");
-  const [roadDistKm, setRoadDistKm]     = useState(null);
-  const [etaMin, setEtaMin]             = useState(null);
-  const [lastUpdate, setLastUpdate]     = useState(null);
-  const [isLive, setIsLive]             = useState(false);
-  const [currentStage, setCurrentStage] = useState(0);
+  const [busPosition,    setBusPosition]    = useState([COLLEGE_LAT, COLLEGE_LNG]);
+  const [studentPosition,setStudentPosition]= useState(null);
+  const [driverName,     setDriverName]     = useState("—");
+  const [busNo,          setBusNo]          = useState("—");
+  const [distKm,         setDistKm]         = useState(null);   // shown value
+  const [isRoadDist,     setIsRoadDist]     = useState(false);  // true = OSRM, false = haversine
+  const [etaMin,         setEtaMin]         = useState(null);
+  const [lastUpdate,     setLastUpdate]     = useState(null);
+  const [isLive,         setIsLive]         = useState(false);
+  const [currentStage,   setCurrentStage]   = useState(0);
 
   const stops = (student.stops || []).map((s) =>
     typeof s === "string" ? { name: s, lat: null, lng: null } : s
@@ -131,7 +138,7 @@ export default function MapPage() {
   const wsRef      = useRef(null);
   const mountedRef = useRef(true);
 
-  // Student GPS
+  // ── Student GPS ──
   useEffect(() => {
     if (!navigator.geolocation) return;
     const id = navigator.geolocation.watchPosition(
@@ -142,10 +149,29 @@ export default function MapPage() {
     return () => navigator.geolocation.clearWatch(id);
   }, []);
 
-  // ================================
-  // WebSocket — OSRM called directly
-  // inside the closure so no stale ref
-  // ================================
+  // ─────────────────────────────────────
+  // Shared update logic (called from WS + REST)
+  // Step 1: set haversine immediately → user sees number right away
+  // Step 2: fetch OSRM → upgrade if successful
+  // ─────────────────────────────────────
+  function updateDistanceInstant(lat, lng) {
+    const airKm = parseFloat(haversineKm(lat, lng, COLLEGE_LAT, COLLEGE_LNG).toFixed(1));
+    // Show air distance immediately so card is never blank
+    setDistKm(airKm);
+    setIsRoadDist(false);
+    setEtaMin(Math.round((airKm / 40) * 60));
+
+    // Upgrade to road distance in background
+    fetchRoadKm(lat, lng).then((roadKm) => {
+      if (roadKm !== null && mountedRef.current) {
+        setDistKm(roadKm);
+        setIsRoadDist(true);
+        setEtaMin(Math.round((roadKm / 40) * 60));
+      }
+    });
+  }
+
+  // ── WebSocket ──
   useEffect(() => {
     mountedRef.current = true;
 
@@ -157,35 +183,25 @@ export default function MapPage() {
       ws.onopen  = () => { if (mountedRef.current) setIsLive(true); };
       ws.onerror = () => { if (mountedRef.current) setIsLive(false); };
       ws.onclose = () => {
-        if (mountedRef.current) {
-          setIsLive(false);
-          setTimeout(connect, 5000);
-        }
+        if (mountedRef.current) { setIsLive(false); setTimeout(connect, 5000); }
       };
 
-      ws.onmessage = async (e) => {
+      ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
           if (msg.type !== "location") return;
-
           const msgRoute = (msg.route || "").toLowerCase().trim();
           const myRoute  = (studentRoute || "").toLowerCase().trim();
-          if (!myRoute || msgRoute !== myRoute) return;
-          if (!msg.lat || !msg.lng) return;
+          if (!myRoute || msgRoute !== myRoute || !msg.lat || !msg.lng) return;
 
-          // Update position/info immediately
           setBusPosition([msg.lat, msg.lng]);
           setDriverName(msg.name || "—");
           setBusNo(msg.busNo || "—");
           setCurrentStage(msg.stageIndex || 0);
           setLastUpdate(new Date().toLocaleTimeString());
 
-          // ✅ Fetch road distance from OSRM directly here
-          const km = await fetchRoadKm(msg.lat, msg.lng);
-          if (mountedRef.current) {
-            setRoadDistKm(km);
-            setEtaMin(Math.round((km / 40) * 60));
-          }
+          // ✅ Instant haversine + background OSRM upgrade
+          updateDistanceInstant(msg.lat, msg.lng);
         } catch (_) {}
       };
     }
@@ -194,9 +210,7 @@ export default function MapPage() {
     return () => { mountedRef.current = false; wsRef.current?.close(); };
   }, [studentRoute]);
 
-  // ================================
-  // REST Fallback — OSRM called directly
-  // ================================
+  // ── REST Fallback every 10s ──
   useEffect(() => {
     let active = true;
 
@@ -209,7 +223,7 @@ export default function MapPage() {
 
         const match = list.find(
           (d) => (d.route || "").toLowerCase().trim() ===
-                 studentRoute.toLowerCase().trim()
+                  studentRoute.toLowerCase().trim()
         );
         if (!match || !match.lat || !match.lng) return;
 
@@ -219,13 +233,9 @@ export default function MapPage() {
           setBusNo(match.busNo || "—");
           setCurrentStage(match.stageIndex || 0);
           setLastUpdate(new Date().toLocaleTimeString());
-        }
 
-        // ✅ Fetch road distance from OSRM directly here
-        const km = await fetchRoadKm(match.lat, match.lng);
-        if (active) {
-          setRoadDistKm(km);
-          setEtaMin(Math.round((km / 40) * 60));
+          // ✅ Instant haversine + background OSRM upgrade
+          updateDistanceInstant(match.lat, match.lng);
         }
       } catch (_) {}
     }
@@ -297,8 +307,20 @@ export default function MapPage() {
 
         {/* STAT CARDS */}
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-          <StatCard value={roadDistKm} label="KM Left (Road)" color="#3b82f6" icon="🛣️" />
-          <StatCard value={etaMin}     label="ETA (min)"      color="#f97316" icon="🕐" />
+          <StatCard
+            value={distKm}
+            label="KM Left"
+            color="#3b82f6"
+            icon="🛣️"
+            isRoad={isRoadDist}
+          />
+          <StatCard
+            value={etaMin}
+            label="ETA (min)"
+            color="#f97316"
+            icon="🕐"
+            isRoad={null}
+          />
         </div>
 
         {/* MAP */}
@@ -313,28 +335,19 @@ export default function MapPage() {
           <Marker position={busPosition} icon={busIcon}>
             <Popup>🚌 Bus<br />Driver: {driverName}</Popup>
           </Marker>
-
           {studentPosition && (
             <Marker position={studentPosition} icon={studentIcon}>
               <Popup>👨‍🎓 Your Location</Popup>
             </Marker>
           )}
-
           <Marker position={[COLLEGE_LAT, COLLEGE_LNG]} icon={collegeIcon}>
             <Popup>🎓 Vishwadarshana College</Popup>
           </Marker>
-
           {studentPosition && (
-            <Polyline
-              positions={[busPosition, studentPosition]}
-              color="red" weight={3} dashArray="6"
-            />
+            <Polyline positions={[busPosition, studentPosition]} color="red" weight={3} dashArray="6" />
           )}
           {studentPosition && (
-            <Polyline
-              positions={[[COLLEGE_LAT, COLLEGE_LNG], studentPosition]}
-              color="#1565C0" weight={3}
-            />
+            <Polyline positions={[[COLLEGE_LAT, COLLEGE_LNG], studentPosition]} color="#1565C0" weight={3} />
           )}
           {stops.filter((s) => s.lat && s.lng).length > 1 && (
             <Polyline
@@ -352,7 +365,7 @@ export default function MapPage() {
             </div>
             {stops.map((s, i) => {
               const status =
-                i < currentStage  ? "✅ Passed"   :
+                i < currentStage   ? "✅ Passed"   :
                 i === currentStage ? "🟢 Arriving" : "⏳ Upcoming";
               return (
                 <div key={i} style={{
