@@ -1,5 +1,5 @@
-// MapPage.jsx — Final correct version
-import { useEffect, useRef, useState } from "react";
+
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   MapContainer, TileLayer, Marker,
@@ -8,6 +8,7 @@ import {
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
+// ── Leaflet default marker fix ──
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
@@ -15,6 +16,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl:     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
 });
 
+// ── Icons ──
 const busIcon = new L.Icon({
   iconUrl: "https://cdn-icons-png.flaticon.com/512/3448/3448339.png",
   iconSize: [40, 40], iconAnchor: [20, 40],
@@ -31,10 +33,9 @@ const collegeIcon = new L.Icon({
 const COLLEGE_LAT = 14.9657;
 const COLLEGE_LNG = 74.7092;
 const DRIVER_API  = "https://backendstudent-1.onrender.com";
+const OSRM_BASE   = "https://router.project-osrm.org/route/v1/driving";
 
-// ─────────────────────────────────────
-// Air distance — instant, always works
-// ─────────────────────────────────────
+// ── Air distance (instant fallback) ──
 function haversineKm(lat1, lng1, lat2, lng2) {
   const R    = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -47,32 +48,49 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// ─────────────────────────────────────
-// Road distance via OSRM — async upgrade
-// Defined OUTSIDE component (no stale closure)
-// Returns null if OSRM fails (caller keeps haversine)
-// ─────────────────────────────────────
-async function fetchRoadKm(lat, lng) {
-  try {
-    const res  = await fetch(
-      `https://router.project-osrm.org/route/v1/driving/` +
-      `${lng},${lat};${COLLEGE_LNG},${COLLEGE_LAT}?overview=false`
-    );
-    const data = await res.json();
-    if (data.routes && data.routes.length > 0) {
-      return parseFloat((data.routes[0].distance / 1000).toFixed(1));
+// ── Road distance via OSRM (with timeout + retry) ──
+async function fetchRoadKm(lat, lng, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeout    = setTimeout(() => controller.abort(), 6000); // 6s timeout
+
+      const res = await fetch(
+        `${OSRM_BASE}/${lng},${lat};${COLLEGE_LNG},${COLLEGE_LAT}?overview=false`,
+        { signal: controller.signal }
+      );
+      clearTimeout(timeout);
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      if (data.routes?.length > 0) {
+        return parseFloat((data.routes[0].distance / 1000).toFixed(1));
+      }
+    } catch (err) {
+      if (attempt === retries) return null; // all retries exhausted
+      await new Promise((r) => setTimeout(r, 1500)); // wait before retry
     }
-  } catch (_) {}
-  return null; // null = keep showing haversine
+  }
+  return null;
 }
 
+// ── Map recentering helper ──
 function RecenterMap({ position }) {
   const map = useMap();
   useEffect(() => { map.setView(position, map.getZoom()); }, [position, map]);
   return null;
 }
 
-function StatCard({ value, label, color, icon, isRoad }) {
+// ── Stat Card ──
+function StatCard({ value, label, color, icon, distMode }) {
+  // distMode: "road" | "air" | "loading" | null
+  const badge =
+    distMode === "road"    ? { text: "📡 Road",    color: "#16a34a" } :
+    distMode === "loading" ? { text: "⏳ Fetching…", color: "#f59e0b" } :
+    distMode === "air"     ? { text: "📐 Air est.", color: "#94a3b8" } :
+    null;
+
   return (
     <div style={{
       flex: 1, background: "#fff",
@@ -85,23 +103,15 @@ function StatCard({ value, label, color, icon, isRoad }) {
         {value ?? "--"}
       </div>
       <div style={{
-        fontSize: "0.68rem", color: "#64748b",
-        marginTop: 4, display: "flex",
-        alignItems: "center", justifyContent: "center",
+        fontSize: "0.68rem", color: "#64748b", marginTop: 4,
+        display: "flex", alignItems: "center", justifyContent: "center",
         gap: 3, fontWeight: 500,
       }}>
-        <span>{icon}</span>
-        <span>{label}</span>
+        <span>{icon}</span><span>{label}</span>
       </div>
-      {/* Small badge: Road / Air */}
-      {value != null && (
-        <div style={{
-          fontSize: "0.58rem",
-          color: isRoad ? "#16a34a" : "#94a3b8",
-          marginTop: 3,
-          fontWeight: 600,
-        }}>
-          {isRoad ? "📡 Road" : "📐 Air"}
+      {badge && (
+        <div style={{ fontSize: "0.58rem", color: badge.color, marginTop: 3, fontWeight: 600 }}>
+          {badge.text}
         </div>
       )}
     </div>
@@ -120,16 +130,16 @@ export default function MapPage() {
   })();
   const studentRoute = student.route || "";
 
-  const [busPosition,    setBusPosition]    = useState([COLLEGE_LAT, COLLEGE_LNG]);
-  const [studentPosition,setStudentPosition]= useState(null);
-  const [driverName,     setDriverName]     = useState("—");
-  const [busNo,          setBusNo]          = useState("—");
-  const [distKm,         setDistKm]         = useState(null);   // shown value
-  const [isRoadDist,     setIsRoadDist]     = useState(false);  // true = OSRM, false = haversine
-  const [etaMin,         setEtaMin]         = useState(null);
-  const [lastUpdate,     setLastUpdate]     = useState(null);
-  const [isLive,         setIsLive]         = useState(false);
-  const [currentStage,   setCurrentStage]   = useState(0);
+  const [busPosition,     setBusPosition]     = useState([COLLEGE_LAT, COLLEGE_LNG]);
+  const [studentPosition, setStudentPosition] = useState(null);
+  const [driverName,      setDriverName]      = useState("—");
+  const [busNo,           setBusNo]           = useState("—");
+  const [distKm,          setDistKm]          = useState(null);
+  const [distMode,        setDistMode]        = useState(null); // "road" | "air" | "loading"
+  const [etaMin,          setEtaMin]          = useState(null);
+  const [lastUpdate,      setLastUpdate]      = useState(null);
+  const [isLive,          setIsLive]          = useState(false);
+  const [currentStage,    setCurrentStage]    = useState(0);
 
   const stops = (student.stops || []).map((s) =>
     typeof s === "string" ? { name: s, lat: null, lng: null } : s
@@ -149,27 +159,32 @@ export default function MapPage() {
     return () => navigator.geolocation.clearWatch(id);
   }, []);
 
-  // ─────────────────────────────────────
-  // Shared update logic (called from WS + REST)
-  // Step 1: set haversine immediately → user sees number right away
-  // Step 2: fetch OSRM → upgrade if successful
-  // ─────────────────────────────────────
-  function updateDistanceInstant(lat, lng) {
+  // ─────────────────────────────────────────────────────
+  // updateDistance:
+  //   1) Show air distance + "loading" badge immediately
+  //   2) Fetch OSRM road distance in background (with retry)
+  //   3) Upgrade to road distance when it arrives
+  // ─────────────────────────────────────────────────────
+  const updateDistance = useCallback((lat, lng) => {
+    // Step 1 — instant air estimate
     const airKm = parseFloat(haversineKm(lat, lng, COLLEGE_LAT, COLLEGE_LNG).toFixed(1));
-    // Show air distance immediately so card is never blank
     setDistKm(airKm);
-    setIsRoadDist(false);
+    setDistMode("loading");              // show ⏳ Fetching… badge
     setEtaMin(Math.round((airKm / 40) * 60));
 
-    // Upgrade to road distance in background
+    // Step 2 — upgrade in background
     fetchRoadKm(lat, lng).then((roadKm) => {
-      if (roadKm !== null && mountedRef.current) {
+      if (!mountedRef.current) return;
+      if (roadKm !== null) {
         setDistKm(roadKm);
-        setIsRoadDist(true);
+        setDistMode("road");
         setEtaMin(Math.round((roadKm / 40) * 60));
+      } else {
+        // OSRM failed — keep air, update badge
+        setDistMode("air");
       }
     });
-  }
+  }, []);
 
   // ── WebSocket ──
   useEffect(() => {
@@ -183,9 +198,11 @@ export default function MapPage() {
       ws.onopen  = () => { if (mountedRef.current) setIsLive(true); };
       ws.onerror = () => { if (mountedRef.current) setIsLive(false); };
       ws.onclose = () => {
-        if (mountedRef.current) { setIsLive(false); setTimeout(connect, 5000); }
+        if (mountedRef.current) {
+          setIsLive(false);
+          setTimeout(connect, 5000);
+        }
       };
-
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
@@ -195,20 +212,18 @@ export default function MapPage() {
           if (!myRoute || msgRoute !== myRoute || !msg.lat || !msg.lng) return;
 
           setBusPosition([msg.lat, msg.lng]);
-          setDriverName(msg.name || "—");
-          setBusNo(msg.busNo || "—");
+          setDriverName(msg.name  || "—");
+          setBusNo(msg.busNo      || "—");
           setCurrentStage(msg.stageIndex || 0);
           setLastUpdate(new Date().toLocaleTimeString());
-
-          // ✅ Instant haversine + background OSRM upgrade
-          updateDistanceInstant(msg.lat, msg.lng);
+          updateDistance(msg.lat, msg.lng);
         } catch (_) {}
       };
     }
 
     connect();
     return () => { mountedRef.current = false; wsRef.current?.close(); };
-  }, [studentRoute]);
+  }, [studentRoute, updateDistance]);
 
   // ── REST Fallback every 10s ──
   useEffect(() => {
@@ -225,17 +240,15 @@ export default function MapPage() {
           (d) => (d.route || "").toLowerCase().trim() ===
                   studentRoute.toLowerCase().trim()
         );
-        if (!match || !match.lat || !match.lng) return;
+        if (!match?.lat || !match?.lng) return;
 
         if (active) {
           setBusPosition([match.lat, match.lng]);
-          setDriverName(match.name || "—");
-          setBusNo(match.busNo || "—");
+          setDriverName(match.name  || "—");
+          setBusNo(match.busNo      || "—");
           setCurrentStage(match.stageIndex || 0);
           setLastUpdate(new Date().toLocaleTimeString());
-
-          // ✅ Instant haversine + background OSRM upgrade
-          updateDistanceInstant(match.lat, match.lng);
+          updateDistance(match.lat, match.lng);
         }
       } catch (_) {}
     }
@@ -243,7 +256,7 @@ export default function MapPage() {
     fetchLocation();
     const interval = setInterval(fetchLocation, 10000);
     return () => { active = false; clearInterval(interval); };
-  }, [studentRoute]);
+  }, [studentRoute, updateDistance]);
 
   // ================================
   // UI
@@ -312,14 +325,14 @@ export default function MapPage() {
             label="KM Left"
             color="#3b82f6"
             icon="🛣️"
-            isRoad={isRoadDist}
+            distMode={distMode}
           />
           <StatCard
             value={etaMin}
             label="ETA (min)"
             color="#f97316"
             icon="🕐"
-            isRoad={null}
+            distMode={null}
           />
         </div>
 
@@ -335,19 +348,28 @@ export default function MapPage() {
           <Marker position={busPosition} icon={busIcon}>
             <Popup>🚌 Bus<br />Driver: {driverName}</Popup>
           </Marker>
+
           {studentPosition && (
             <Marker position={studentPosition} icon={studentIcon}>
               <Popup>👨‍🎓 Your Location</Popup>
             </Marker>
           )}
+
           <Marker position={[COLLEGE_LAT, COLLEGE_LNG]} icon={collegeIcon}>
             <Popup>🎓 Vishwadarshana College</Popup>
           </Marker>
+
           {studentPosition && (
-            <Polyline positions={[busPosition, studentPosition]} color="red" weight={3} dashArray="6" />
+            <Polyline
+              positions={[busPosition, studentPosition]}
+              color="red" weight={3} dashArray="6"
+            />
           )}
           {studentPosition && (
-            <Polyline positions={[[COLLEGE_LAT, COLLEGE_LNG], studentPosition]} color="#1565C0" weight={3} />
+            <Polyline
+              positions={[[COLLEGE_LAT, COLLEGE_LNG], studentPosition]}
+              color="#1565C0" weight={3}
+            />
           )}
           {stops.filter((s) => s.lat && s.lng).length > 1 && (
             <Polyline
@@ -388,16 +410,22 @@ export default function MapPage() {
 
         {/* BOTTOM BUTTONS */}
         <div style={{ display: "flex", gap: 10, marginTop: 16, paddingBottom: 16 }}>
-          <button onClick={() => navigate("/dashboard")} style={{
-            flex: 1, padding: 12, borderRadius: 10, border: "none",
-            background: "#f1f5f9", fontWeight: 700, cursor: "pointer",
-            fontSize: "0.9rem", color: "#334155",
-          }}>🏠 Dashboard</button>
-          <button onClick={() => navigate("/map")} style={{
-            flex: 1, padding: 12, borderRadius: 10, border: "none",
-            background: "#1565C0", color: "white",
-            fontWeight: 700, cursor: "pointer", fontSize: "0.9rem",
-          }}>🚌 Live Tracking</button>
+          <button
+            onClick={() => navigate("/dashboard")}
+            style={{
+              flex: 1, padding: 12, borderRadius: 10, border: "none",
+              background: "#f1f5f9", fontWeight: 700, cursor: "pointer",
+              fontSize: "0.9rem", color: "#334155",
+            }}
+          >🏠 Dashboard</button>
+          <button
+            onClick={() => navigate("/map")}
+            style={{
+              flex: 1, padding: 12, borderRadius: 10, border: "none",
+              background: "#1565C0", color: "white",
+              fontWeight: 700, cursor: "pointer", fontSize: "0.9rem",
+            }}
+          >🚌 Live Tracking</button>
         </div>
 
       </div>
