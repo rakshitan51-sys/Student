@@ -2,40 +2,67 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  MapContainer, TileLayer, Marker,
-  Polyline, Popup, useMap,
+  MapContainer,
+  TileLayer,
+  Marker,
+  Polyline,
+  Popup,
+  useMap,
 } from "react-leaflet";
+
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-// ── Leaflet default marker fix ──
+// ================================
+// Fix Leaflet Default Marker
+// ================================
 delete L.Icon.Default.prototype._getIconUrl;
+
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
-  iconUrl:       "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
-  shadowUrl:     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
+  iconRetinaUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
+  iconUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+  shadowUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
 });
 
-// ── Icons ──
+// ================================
+// Icons
+// ================================
 const busIcon = new L.Icon({
   iconUrl: "https://cdn-icons-png.flaticon.com/512/3448/3448339.png",
-  iconSize: [40, 40], iconAnchor: [20, 40],
+  iconSize: [40, 40],
+  iconAnchor: [20, 40],
 });
+
 const studentIcon = new L.Icon({
   iconUrl: "https://cdn-icons-png.flaticon.com/512/3177/3177440.png",
-  iconSize: [35, 35], iconAnchor: [17, 35],
+  iconSize: [35, 35],
+  iconAnchor: [17, 35],
 });
+
 const collegeIcon = new L.Icon({
   iconUrl: "https://cdn-icons-png.flaticon.com/512/167/167707.png",
-  iconSize: [35, 35], iconAnchor: [17, 35],
+  iconSize: [35, 35],
+  iconAnchor: [17, 35],
 });
 
+// ================================
+// College Coordinates
+// ================================
 const COLLEGE_LAT = 14.9657;
 const COLLEGE_LNG = 74.7092;
-const DRIVER_API  = "https://backendstudent-1.onrender.com";
-const OSRM_BASE   = "https://router.project-osrm.org/route/v1/driving";
 
-// ── Air distance (instant fallback) ──
+// ================================
+// Backend URL
+// ================================
+const DRIVER_API = "https://backendstudent-1.onrender.com";
+const OSRM_BASE  = "https://router.project-osrm.org/route/v1/driving";
+
+// ================================
+// Distance Calculator (air)
+// ================================
 function haversineKm(lat1, lng1, lat2, lng2) {
   const R    = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -43,17 +70,20 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   const a =
     Math.sin(dLat / 2) ** 2 +
     Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLng / 2) ** 2;
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// ── Road distance via OSRM (with timeout + retry) ──
+// ================================
+// Road Distance via OSRM
+// (with 6s timeout + 2 retries)
+// ================================
 async function fetchRoadKm(lat, lng, retries = 2) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const controller = new AbortController();
-      const timeout    = setTimeout(() => controller.abort(), 6000); // 6s timeout
+      const timeout    = setTimeout(() => controller.abort(), 6000);
 
       const res = await fetch(
         `${OSRM_BASE}/${lng},${lat};${COLLEGE_LNG},${COLLEGE_LAT}?overview=false`,
@@ -67,35 +97,32 @@ async function fetchRoadKm(lat, lng, retries = 2) {
       if (data.routes?.length > 0) {
         return parseFloat((data.routes[0].distance / 1000).toFixed(1));
       }
-    } catch (err) {
-      if (attempt === retries) return null; // all retries exhausted
-      await new Promise((r) => setTimeout(r, 1500)); // wait before retry
+    } catch (_) {
+      if (attempt === retries) return null;
+      await new Promise((r) => setTimeout(r, 1500));
     }
   }
   return null;
 }
 
-// ── Map recentering helper ──
-function RecenterMap({ position }) {
-  const map = useMap();
-  useEffect(() => { map.setView(position, map.getZoom()); }, [position, map]);
-  return null;
-}
-
-// ── Stat Card ──
+// ================================
+// Stat Card Component
+// ================================
 function StatCard({ value, label, color, icon, distMode }) {
   // distMode: "road" | "air" | "loading" | null
   const badge =
-    distMode === "road"    ? { text: "📡 Road",    color: "#16a34a" } :
+    distMode === "road"    ? { text: "📡 Road",     color: "#16a34a" } :
     distMode === "loading" ? { text: "⏳ Fetching…", color: "#f59e0b" } :
-    distMode === "air"     ? { text: "📐 Air est.", color: "#94a3b8" } :
+    distMode === "air"     ? { text: "📐 Air est.",  color: "#94a3b8" } :
     null;
 
   return (
     <div style={{
-      flex: 1, background: "#fff",
+      flex: 1,
+      background: "#fff",
       border: `1.5px solid ${color}33`,
-      borderRadius: 14, padding: "12px 8px",
+      borderRadius: 14,
+      padding: "12px 8px",
       textAlign: "center",
       boxShadow: "0 2px 8px rgba(0,0,0,0.07)",
     }}>
@@ -103,14 +130,25 @@ function StatCard({ value, label, color, icon, distMode }) {
         {value ?? "--"}
       </div>
       <div style={{
-        fontSize: "0.68rem", color: "#64748b", marginTop: 4,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        gap: 3, fontWeight: 500,
+        fontSize: "0.68rem",
+        color: "#64748b",
+        marginTop: 4,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 3,
+        fontWeight: 500,
       }}>
-        <span>{icon}</span><span>{label}</span>
+        <span>{icon}</span>
+        <span>{label}</span>
       </div>
       {badge && (
-        <div style={{ fontSize: "0.58rem", color: badge.color, marginTop: 3, fontWeight: 600 }}>
+        <div style={{
+          fontSize: "0.58rem",
+          color: badge.color,
+          marginTop: 3,
+          fontWeight: 600,
+        }}>
           {badge.text}
         </div>
       )}
@@ -119,27 +157,49 @@ function StatCard({ value, label, color, icon, distMode }) {
 }
 
 // ================================
+// Recenter Map
+// ================================
+function RecenterMap({ position }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView(position, map.getZoom());
+  }, [position, map]);
+  return null;
+}
+
+// ================================
 // Main Component
 // ================================
 export default function MapPage() {
   const navigate = useNavigate();
 
+  // ================================
+  // Student Data
+  // ================================
   const student = (() => {
-    try { return JSON.parse(localStorage.getItem("student") || "{}"); }
-    catch { return {}; }
+    try {
+      return JSON.parse(localStorage.getItem("student") || "{}");
+    } catch {
+      return {};
+    }
   })();
+
   const studentRoute = student.route || "";
 
-  const [busPosition,     setBusPosition]     = useState([COLLEGE_LAT, COLLEGE_LNG]);
+  // ================================
+  // States
+  // ================================
+  const [busPosition, setBusPosition] = useState([COLLEGE_LAT, COLLEGE_LNG]);
   const [studentPosition, setStudentPosition] = useState(null);
-  const [driverName,      setDriverName]      = useState("—");
-  const [busNo,           setBusNo]           = useState("—");
-  const [distKm,          setDistKm]          = useState(null);
-  const [distMode,        setDistMode]        = useState(null); // "road" | "air" | "loading"
-  const [etaMin,          setEtaMin]          = useState(null);
-  const [lastUpdate,      setLastUpdate]      = useState(null);
-  const [isLive,          setIsLive]          = useState(false);
-  const [currentStage,    setCurrentStage]    = useState(0);
+  const [driverName, setDriverName]   = useState("—");
+  const [busNo, setBusNo]             = useState("—");
+  const [distKm, setDistKm]           = useState(null);
+  const [distMode, setDistMode]       = useState(null); // ← NEW: "road"|"air"|"loading"
+  const [etaMin, setEtaMin]           = useState(null);
+  const [lastUpdate, setLastUpdate]   = useState(null);
+  const [wsStatus, setWsStatus]       = useState("Connecting...");
+  const [isLive, setIsLive]           = useState(false);
+  const [currentStage, setCurrentStage] = useState(0);
 
   const stops = (student.stops || []).map((s) =>
     typeof s === "string" ? { name: s, lat: null, lng: null } : s
@@ -148,31 +208,17 @@ export default function MapPage() {
   const wsRef      = useRef(null);
   const mountedRef = useRef(true);
 
-  // ── Student GPS ──
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    const id = navigator.geolocation.watchPosition(
-      (p) => setStudentPosition([p.coords.latitude, p.coords.longitude]),
-      (e) => console.warn(e),
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
-    );
-    return () => navigator.geolocation.clearWatch(id);
-  }, []);
-
-  // ─────────────────────────────────────────────────────
+  // ================================
   // updateDistance:
-  //   1) Show air distance + "loading" badge immediately
-  //   2) Fetch OSRM road distance in background (with retry)
-  //   3) Upgrade to road distance when it arrives
-  // ─────────────────────────────────────────────────────
+  // 1) Show air instantly
+  // 2) Upgrade to road in background
+  // ================================
   const updateDistance = useCallback((lat, lng) => {
-    // Step 1 — instant air estimate
     const airKm = parseFloat(haversineKm(lat, lng, COLLEGE_LAT, COLLEGE_LNG).toFixed(1));
     setDistKm(airKm);
-    setDistMode("loading");              // show ⏳ Fetching… badge
+    setDistMode("loading");
     setEtaMin(Math.round((airKm / 40) * 60));
 
-    // Step 2 — upgrade in background
     fetchRoadKm(lat, lng).then((roadKm) => {
       if (!mountedRef.current) return;
       if (roadKm !== null) {
@@ -180,52 +226,96 @@ export default function MapPage() {
         setDistMode("road");
         setEtaMin(Math.round((roadKm / 40) * 60));
       } else {
-        // OSRM failed — keep air, update badge
         setDistMode("air");
       }
     });
   }, []);
 
-  // ── WebSocket ──
+  // ================================
+  // Student Live GPS Location
+  // ================================
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        setStudentPosition([pos.coords.latitude, pos.coords.longitude]);
+      },
+      (err) => { console.log(err); },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
+
+  // ================================
+  // WebSocket Live Updates
+  // ================================
   useEffect(() => {
     mountedRef.current = true;
 
     function connect() {
       if (!mountedRef.current) return;
+
       const ws = new WebSocket("ws://localhost:8000/ws");
       wsRef.current = ws;
 
-      ws.onopen  = () => { if (mountedRef.current) setIsLive(true); };
-      ws.onerror = () => { if (mountedRef.current) setIsLive(false); };
+      ws.onopen = () => {
+        if (mountedRef.current) {
+          setWsStatus("🟢 Live");
+          setIsLive(true);
+        }
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+
+          if (msg.type === "location") {
+            const msgRoute = (msg.route || "").toLowerCase().trim();
+            const myRoute  = (studentRoute || "").toLowerCase().trim();
+
+            if (!myRoute || msgRoute !== myRoute) return;
+
+            if (msg.lat && msg.lng) {
+              setBusPosition([msg.lat, msg.lng]);
+              setDriverName(msg.name  || "—");
+              setBusNo(msg.busNo      || "—");
+              setLastUpdate(new Date().toLocaleTimeString());
+              setCurrentStage(msg.stageIndex || 0);
+
+              // ✅ Road distance (was haversine before)
+              updateDistance(msg.lat, msg.lng);
+            }
+          }
+        } catch (_) {}
+      };
+
+      ws.onerror = () => {
+        if (mountedRef.current) {
+          setWsStatus("⚠️ Error");
+          setIsLive(false);
+        }
+      };
+
       ws.onclose = () => {
         if (mountedRef.current) {
+          setWsStatus("🔄 Reconnecting...");
           setIsLive(false);
           setTimeout(connect, 5000);
         }
       };
-      ws.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data);
-          if (msg.type !== "location") return;
-          const msgRoute = (msg.route || "").toLowerCase().trim();
-          const myRoute  = (studentRoute || "").toLowerCase().trim();
-          if (!myRoute || msgRoute !== myRoute || !msg.lat || !msg.lng) return;
-
-          setBusPosition([msg.lat, msg.lng]);
-          setDriverName(msg.name  || "—");
-          setBusNo(msg.busNo      || "—");
-          setCurrentStage(msg.stageIndex || 0);
-          setLastUpdate(new Date().toLocaleTimeString());
-          updateDistance(msg.lat, msg.lng);
-        } catch (_) {}
-      };
     }
 
     connect();
-    return () => { mountedRef.current = false; wsRef.current?.close(); };
+
+    return () => {
+      mountedRef.current = false;
+      wsRef.current?.close();
+    };
   }, [studentRoute, updateDistance]);
 
-  // ── REST Fallback every 10s ──
+  // ================================
+  // REST Fallback
+  // ================================
   useEffect(() => {
     let active = true;
 
@@ -237,17 +327,18 @@ export default function MapPage() {
         if (!Array.isArray(list)) return;
 
         const match = list.find(
-          (d) => (d.route || "").toLowerCase().trim() ===
-                  studentRoute.toLowerCase().trim()
+          (d) =>
+            (d.route || "").toLowerCase().trim() ===
+            studentRoute.toLowerCase().trim()
         );
-        if (!match?.lat || !match?.lng) return;
 
-        if (active) {
+        if (match && match.lat && match.lng && active) {
           setBusPosition([match.lat, match.lng]);
           setDriverName(match.name  || "—");
           setBusNo(match.busNo      || "—");
-          setCurrentStage(match.stageIndex || 0);
           setLastUpdate(new Date().toLocaleTimeString());
+
+          // ✅ Road distance (was haversine before)
           updateDistance(match.lat, match.lng);
         }
       } catch (_) {}
@@ -262,172 +353,169 @@ export default function MapPage() {
   // UI
   // ================================
   return (
-    <div style={{
-      fontFamily: "sans-serif", maxWidth: 480,
-      margin: "0 auto", background: "#f1f5f9", minHeight: "100vh",
-    }}>
+    <div
+      style={{
+        fontFamily: "sans-serif",
+        maxWidth: 480,
+        margin: "0 auto",
+        padding: 12,
+      }}
+    >
+      <h2 style={{ margin: "0 0 8px", fontSize: "1.1rem" }}>
+        🚍 Live Bus Tracking
+      </h2>
 
-      {/* HEADER */}
-      <div style={{
-        background: "linear-gradient(135deg, #1565C0, #1e88e5)",
-        padding: "16px 16px 14px",
-        display: "flex", alignItems: "center", gap: 10,
-      }}>
-        <span style={{ fontSize: "1.5rem" }}>🚍</span>
-        <div>
-          <div style={{ color: "#fff", fontWeight: 800, fontSize: "1rem" }}>
-            Live Bus Tracking
-          </div>
-          <div style={{ color: "#bbdefb", fontSize: "0.72rem", marginTop: 1 }}>
-            {studentRoute ? `Route: ${studentRoute}` : "No route assigned"}
-          </div>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{
-            width: 9, height: 9, borderRadius: "50%",
-            background: isLive ? "#4ade80" : "#f87171",
-            display: "inline-block",
-            boxShadow: isLive ? "0 0 0 3px #4ade8055" : "none",
-          }} />
-          <span style={{ color: "#fff", fontSize: "0.72rem", fontWeight: 600 }}>
-            {isLive ? "Live" : "Offline"}
-          </span>
-        </div>
+      {/* STATUS */}
+      <div
+        style={{
+          background: isLive ? "#f0fdf4" : "#fff7ed",
+          border: `1px solid ${isLive ? "#86efac" : "#fed7aa"}`,
+          borderRadius: 10,
+          padding: "8px 12px",
+          marginBottom: 10,
+          display: "flex",
+          justifyContent: "space-between",
+          fontSize: "0.8rem",
+        }}
+      >
+        <span>{wsStatus}</span>
+        {lastUpdate && <span>{lastUpdate}</span>}
       </div>
 
-      <div style={{ padding: 12 }}>
-
-        {/* INFO CARD */}
-        <div style={{
-          background: "#fff", borderRadius: 12,
-          padding: "10px 14px", marginBottom: 10,
+      {/* INFO */}
+      <div
+        style={{
+          background: "#eff6ff",
+          borderRadius: 10,
+          padding: 12,
+          marginBottom: 10,
           fontSize: "0.85rem",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.07)",
-          display: "flex", flexDirection: "column", gap: 4,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span>🚌</span><span><b>Bus:</b> {busNo}</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span>👤</span><span><b>Driver:</b> {driverName}</span>
-          </div>
-          {lastUpdate && (
-            <div style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: 2 }}>
-              Last updated: {lastUpdate}
-            </div>
-          )}
-        </div>
+        }}
+      >
+        <div><b>🚌 Bus:</b> {busNo}</div>
+        <div><b>👤 Driver:</b> {driverName}</div>
+        <div><b>🛣 Route:</b> {studentRoute || "—"}</div>
+        <div><b>📏 Distance:</b> {distKm || "--"} KM</div>
+        <div><b>⏱ ETA:</b> {etaMin || "--"} mins</div>
+      </div>
 
-        {/* STAT CARDS */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-          <StatCard
-            value={distKm}
-            label="KM Left"
-            color="#3b82f6"
-            icon="🛣️"
-            distMode={distMode}
-          />
-          <StatCard
-            value={etaMin}
-            label="ETA (min)"
-            color="#f97316"
-            icon="🕐"
-            distMode={null}
-          />
-        </div>
+      {/* ✅ NEW: STAT CARDS (KM Left + ETA) */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <StatCard
+          value={distKm}
+          label="KM Left"
+          color="#3b82f6"
+          icon="🛣️"
+          distMode={distMode}
+        />
+        <StatCard
+          value={etaMin}
+          label="ETA (min)"
+          color="#f97316"
+          icon="🕐"
+          distMode={null}
+        />
+      </div>
 
-        {/* MAP */}
-        <MapContainer
-          center={studentPosition || busPosition}
-          zoom={13}
-          style={{ height: "52vh", borderRadius: 14, overflow: "hidden" }}
-        >
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          <RecenterMap position={studentPosition || busPosition} />
+      {/* MAP — unchanged */}
+      <MapContainer
+        center={studentPosition || busPosition}
+        zoom={13}
+        style={{ height: "55vh", borderRadius: 14, overflow: "hidden" }}
+      >
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-          <Marker position={busPosition} icon={busIcon}>
-            <Popup>🚌 Bus<br />Driver: {driverName}</Popup>
+        <RecenterMap position={studentPosition || busPosition} />
+
+        <Marker position={busPosition} icon={busIcon}>
+          <Popup>🚌 Bus <br /> Driver: {driverName}</Popup>
+        </Marker>
+
+        {studentPosition && (
+          <Marker position={studentPosition} icon={studentIcon}>
+            <Popup>👨‍🎓 Your Location</Popup>
           </Marker>
-
-          {studentPosition && (
-            <Marker position={studentPosition} icon={studentIcon}>
-              <Popup>👨‍🎓 Your Location</Popup>
-            </Marker>
-          )}
-
-          <Marker position={[COLLEGE_LAT, COLLEGE_LNG]} icon={collegeIcon}>
-            <Popup>🎓 Vishwadarshana College</Popup>
-          </Marker>
-
-          {studentPosition && (
-            <Polyline
-              positions={[busPosition, studentPosition]}
-              color="red" weight={3} dashArray="6"
-            />
-          )}
-          {studentPosition && (
-            <Polyline
-              positions={[[COLLEGE_LAT, COLLEGE_LNG], studentPosition]}
-              color="#1565C0" weight={3}
-            />
-          )}
-          {stops.filter((s) => s.lat && s.lng).length > 1 && (
-            <Polyline
-              positions={stops.filter((s) => s.lat && s.lng).map((s) => [s.lat, s.lng])}
-              color="#1565C0" weight={4}
-            />
-          )}
-        </MapContainer>
-
-        {/* ROUTE STOPS */}
-        {stops.length > 0 && (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ fontWeight: 700, marginBottom: 8, fontSize: "0.9rem", color: "#1e293b" }}>
-              📍 Route Stops
-            </div>
-            {stops.map((s, i) => {
-              const status =
-                i < currentStage   ? "✅ Passed"   :
-                i === currentStage ? "🟢 Arriving" : "⏳ Upcoming";
-              return (
-                <div key={i} style={{
-                  display: "flex", justifyContent: "space-between",
-                  padding: "10px 14px", marginBottom: 6, borderRadius: 10,
-                  background: i === currentStage ? "#f0fdf4" : "#fff",
-                  border: `1px solid ${i === currentStage ? "#86efac" : "#e2e8f0"}`,
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-                  fontSize: "0.85rem",
-                }}>
-                  <span style={{ fontWeight: i === currentStage ? 700 : 400 }}>
-                    {i + 1}. {s.name}
-                  </span>
-                  <span>{status}</span>
-                </div>
-              );
-            })}
-          </div>
         )}
 
-        {/* BOTTOM BUTTONS */}
-        <div style={{ display: "flex", gap: 10, marginTop: 16, paddingBottom: 16 }}>
-          <button
-            onClick={() => navigate("/dashboard")}
-            style={{
-              flex: 1, padding: 12, borderRadius: 10, border: "none",
-              background: "#f1f5f9", fontWeight: 700, cursor: "pointer",
-              fontSize: "0.9rem", color: "#334155",
-            }}
-          >🏠 Dashboard</button>
-          <button
-            onClick={() => navigate("/map")}
-            style={{
-              flex: 1, padding: 12, borderRadius: 10, border: "none",
-              background: "#1565C0", color: "white",
-              fontWeight: 700, cursor: "pointer", fontSize: "0.9rem",
-            }}
-          >🚌 Live Tracking</button>
-        </div>
+        <Marker position={[COLLEGE_LAT, COLLEGE_LNG]} icon={collegeIcon}>
+          <Popup>🎓 College</Popup>
+        </Marker>
 
+        {studentPosition && (
+          <Polyline
+            positions={[busPosition, studentPosition]}
+            color="red"
+            weight={4}
+          />
+        )}
+
+        {studentPosition && (
+          <Polyline
+            positions={[[COLLEGE_LAT, COLLEGE_LNG], studentPosition]}
+            color="blue"
+            weight={4}
+          />
+        )}
+
+        {stops.filter((s) => s.lat && s.lng).length > 1 && (
+          <Polyline
+            positions={stops.filter((s) => s.lat && s.lng).map((s) => [s.lat, s.lng])}
+            color="#1565C0"
+            weight={4}
+          />
+        )}
+      </MapContainer>
+
+      {/* ROUTE STOPS — unchanged */}
+      {stops.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>📍 Route Stops</div>
+          {stops.map((s, i) => {
+            let status = "⏳ Upcoming";
+            if (i < currentStage)      status = "✅ Passed";
+            else if (i === currentStage) status = "🟢 Arriving";
+
+            return (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  padding: "8px 12px",
+                  marginBottom: 6,
+                  borderRadius: 8,
+                  background: i === currentStage ? "#f0fdf4" : "#f8fafc",
+                  border: `1px solid ${i === currentStage ? "#86efac" : "#e2e8f0"}`,
+                }}
+              >
+                <span>{i + 1}. {s.name}</span>
+                <span>{status}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* BOTTOM BUTTONS — unchanged */}
+      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+        <button
+          onClick={() => navigate("/dashboard")}
+          style={{
+            flex: 1, padding: 12, borderRadius: 10, border: "none",
+            background: "#f1f5f9", fontWeight: 700, cursor: "pointer",
+          }}
+        >
+          🏠 Dashboard
+        </button>
+        <button
+          onClick={() => navigate("/map")}
+          style={{
+            flex: 1, padding: 12, borderRadius: 10, border: "none",
+            background: "#1565C0", color: "white", fontWeight: 700, cursor: "pointer",
+          }}
+        >
+          🚌 Live Tracking
+        </button>
       </div>
     </div>
   );
