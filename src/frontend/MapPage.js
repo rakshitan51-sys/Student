@@ -230,7 +230,7 @@ export default function MapPage() {
   const [lastUpdate, setLastUpdate]   = useState(null);
   const [wsStatus, setWsStatus]       = useState("Connecting...");
   const [isLive, setIsLive]           = useState(false);
-  const [currentStage, setCurrentStage] = useState(0);
+
 
   // ✅ NEW: Road polyline coords state
   const [busToCollegeRoad, setBusToCollegeRoad] = useState(null); // [lat,lng][] or null
@@ -345,8 +345,7 @@ export default function MapPage() {
               setDriverName(msg.name  || "—");
               setBusNo(msg.busNo      || "—");
               setLastUpdate(new Date().toLocaleTimeString());
-              setCurrentStage(msg.stageIndex || 0);
-              updateDistance(msg.lat, msg.lng);
+updateDistance(msg.lat, msg.lng);
             }
           }
         } catch (_) {}
@@ -549,35 +548,7 @@ export default function MapPage() {
         )}
       </MapContainer>
 
-      {/* ROUTE STOPS — unchanged */}
-      {stops.length > 0 && (
-        <div style={{ marginTop: 14 }}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>📍 Route Stops</div>
-          {stops.map((s, i) => {
-            let status = "⏳ Upcoming";
-            if (i < currentStage)      status = "✅ Passed";
-            else if (i === currentStage) status = "🟢 Arriving";
 
-            return (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  padding: "8px 12px",
-                  marginBottom: 6,
-                  borderRadius: 8,
-                  background: i === currentStage ? "#f0fdf4" : "#f8fafc",
-                  border: `1px solid ${i === currentStage ? "#86efac" : "#e2e8f0"}`,
-                }}
-              >
-                <span>{i + 1}. {s.name}</span>
-                <span>{status}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
 
       {/* BOTTOM BUTTONS — unchanged */}
       <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
